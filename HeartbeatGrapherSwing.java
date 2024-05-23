@@ -9,9 +9,9 @@ import java.util.List;
 
 public class HeartbeatGrapherSwing extends JPanel {
 
-    private static final int ORIGINAL_SAMPLE_RATE = 44100;
-    private static final int TARGET_SAMPLE_RATE = 8000;
-    private static final double THRESHOLD = 1000.0;
+    private static final int SAMPLE_RATE = 44100;
+    private static final double THRESHOLD_MULTIPLIER = 2.5;
+    private static final int MIN_PEAK_DISTANCE = 5000;  // Minimum distance between peaks in samples
 
     private double[] audioData;
     private List<Integer> peakIndices = new ArrayList<>();
@@ -23,7 +23,7 @@ public class HeartbeatGrapherSwing extends JPanel {
 
         // Read WAV file and extract data
         try {
-            File file = new File("Christians_Heart.wav");
+            File file = new File("dong3_Heart.wav");
             AudioInputStream audioInputStream = AudioSystem.getAudioInputStream(file);
             AudioFormat format = audioInputStream.getFormat();
 
@@ -32,7 +32,7 @@ public class HeartbeatGrapherSwing extends JPanel {
             byte[] buffer = new byte[audioInputStream.available()];
             audioInputStream.read(buffer);
 
-            // Convert bytes to double array and downsample
+            // Convert bytes to double array
             audioData = new double[buffer.length / frameSize];
             for (int i = 0; i < audioData.length; i++) {
                 int start = i * frameSize;
@@ -44,9 +44,6 @@ public class HeartbeatGrapherSwing extends JPanel {
 
             audioInputStream.close();
 
-            // Downsample the audio data
-            audioData = downsample(audioData, ORIGINAL_SAMPLE_RATE, TARGET_SAMPLE_RATE);
-
             // Detect peaks and calculate BPM
             detectPeaks();
             calculateBPM();
@@ -56,48 +53,53 @@ public class HeartbeatGrapherSwing extends JPanel {
         }
     }
 
-    private double[] downsample(double[] data, int originalRate, int targetRate) {
-        int ratio = originalRate / targetRate;
-        double[] downsampledData = new double[data.length / ratio];
-        for (int i = 0; i < downsampledData.length; i++) {
-            downsampledData[i] = data[i * ratio];
-        }
-        return downsampledData;
-    }
-
     private void detectPeaks() {
+        double threshold = calculateThreshold(audioData);
+        int lastPeakIndex = -MIN_PEAK_DISTANCE;
+
         for (int i = 1; i < audioData.length - 1; i++) {
-            if (audioData[i] > THRESHOLD && audioData[i] > audioData[i - 1] && audioData[i] > audioData[i + 1]) {
-                if (peakIndices.isEmpty() || i - peakIndices.get(peakIndices.size() - 1) > TARGET_SAMPLE_RATE / 2.5) { // 0.4s minimum interval
+            if (audioData[i] > threshold && audioData[i] > audioData[i - 1] && audioData[i] > audioData[i + 1]) {
+                if (i - lastPeakIndex >= MIN_PEAK_DISTANCE) {
                     peakIndices.add(i);
+                    lastPeakIndex = i;
                 }
             }
         }
     }
 
+    private double calculateThreshold(double[] data) {
+        double mean = calculateMean(data, 0, data.length - 1);
+        double std = calculateStd(data, mean, 0, data.length - 1);
+        return mean + THRESHOLD_MULTIPLIER * std;
+    }
+
+    private double calculateMean(double[] data, int start, int end) {
+        double sum = 0;
+        for (int i = start; i <= end; i++) {
+            sum += data[i];
+        }
+        return sum / (end - start + 1);
+    }
+
+    private double calculateStd(double[] data, double mean, int start, int end) {
+        double sumSquares = 0;
+        for (int i = start; i <= end; i++) {
+            sumSquares += Math.pow(data[i] - mean, 2);
+        }
+        double variance = sumSquares / (end - start + 1);
+        return Math.sqrt(variance);
+    }
+
     private void calculateBPM() {
-        if (peakIndices.size() < 2) return;
-
-        double totalInterval = 0;
-        for (int i = 1; i < peakIndices.size(); i++) {
-            totalInterval += (peakIndices.get(i) - peakIndices.get(i - 1));
-        }
-        double averageInterval = totalInterval / (peakIndices.size() - 1);
-        bpm = TARGET_SAMPLE_RATE * 60 / averageInterval;
-    }
-
-    private double getTimeInterval() {
-        return 1.0 / TARGET_SAMPLE_RATE;
-    }
-/*
-    private double calculateHRV(){
-        double totalInterval = 0;
-        for (int i = 0; i < peakIndices.size() - 1; i = i + 1){
-            totalInterval += ((peakIndices.get(i + 1) - peakIndices.get(i)) * (getTimeInterval()));
+        if (peakIndices.size() < 2) {
+            bpm = 0;
+            return;
         }
 
+        double totalTimeInSeconds = audioData.length / (double) SAMPLE_RATE;
+        bpm = (peakIndices.size() / totalTimeInSeconds) * 60;
     }
-*/
+
     @Override
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
@@ -109,19 +111,25 @@ public class HeartbeatGrapherSwing extends JPanel {
             int lastX = 0, lastY = height / 2;
             for (int i = 0; i < audioData.length; i++) {
                 int x = i * width / audioData.length;
-                int y = height / 2 + (int) (audioData[i] * height / Short.MAX_VALUE * 0.4);
+                int y = height / 2 - (int) (audioData[i] * height / Short.MAX_VALUE * 0.4);
                 g.drawLine(lastX, lastY, x, y);
                 lastX = x;
                 lastY = y;
             }
+
+            // Draw red dots on peaks
+            g.setColor(Color.RED);
+            for (int peakIndex : peakIndices) {
+                int x = peakIndex * width / audioData.length;
+                int y = height / 2 - (int) (audioData[peakIndex] * height / Short.MAX_VALUE * 0.4);
+                g.fillOval(x - 3, y - 3, 6, 6);
+            }
         }
+
         // Draw the BPM
         g.setColor(Color.RED);
         g.setFont(new Font("Arial", Font.BOLD, 20));
         g.drawString("BPM: " + (int) bpm, 10, 30);
-        // Draw the Time Interval
-        g.setFont(new Font("Arial", Font.PLAIN, 16));
-        g.drawString(String.format("Time interval: %.8f seconds", getTimeInterval()), 10, 60);
     }
 
     public static void main(String[] args) {
