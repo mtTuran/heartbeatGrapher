@@ -46,36 +46,28 @@ public class RealTimeHeartbeatGrapher extends JPanel {
         setBorder(new EmptyBorder(10, 10, 10, 10));
 
         graphPanel = new JPanel() {
-            @Override
-            protected void paintComponent(Graphics g) {
-                super.paintComponent(g);
-                if (audioData != null) {
-                    int width = getWidth();
-                    int height = getHeight();
-                    g.setColor(Color.WHITE);
-                    int lastX = 0, lastY = height / 2;
-                    for (int i = 0; i < audioData.length; i++) {
-                        int x = i * width / audioData.length;
-                        int y = height / 2 + (int) (audioData[i] * height / Short.MAX_VALUE * 0.4);
-                        g.drawLine(lastX, lastY, x, y);
-                        lastX = x;
-                        lastY = y;
-                    }
-
-                    if (isFileProcessing) {
-                        g.setColor(Color.RED);
-                        for (int peakIndex : peakIndices) {
-                            int x = peakIndex * width / audioData.length;
-                            int y = height / 2 + (int) (audioData[peakIndex] * height / Short.MAX_VALUE * 0.4);
-                            g.fillOval(x - 3, y - 3, 6, 6);
-                        }
-                    }
+        @Override
+        protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+            if (audioData != null) {
+                int width = getWidth();
+                int height = getHeight();
+                g.setColor(Color.WHITE);
+                int lastX = 0, lastY = height / 2;
+                for (int i = 0; i < audioData.length; i++) {
+                    int x = i * width / audioData.length;
+                    int y = height / 2 + (int) (audioData[i] * height / Short.MAX_VALUE * 0.4);
+                    g.drawLine(lastX, lastY, x, y);
+                    lastX = x;
+                    lastY = y;
                 }
-                g.setColor(Color.RED);
-                g.setFont(new Font("Arial", Font.BOLD, 20));
-                g.drawString("BPM: " + (int) bpm, 10, 30);
-                g.drawString("HRV: " + (int) hrv + " ms", 10, 60);
             }
+            g.setColor(Color.RED);
+            g.setFont(new Font("Arial", Font.BOLD, 20));
+            g.drawString("BPM: " + (int) bpm, 10, 30);
+            g.drawString("HRV: " + (int) hrv + " ms", 10, 60);
+        }
+
         };
         graphPanel.setBackground(Color.DARK_GRAY);
         graphPanel.setLayout(new BorderLayout());
@@ -143,18 +135,22 @@ public class RealTimeHeartbeatGrapher extends JPanel {
 
     private void detectPeaksFromFile() {
         peakIndices.clear();
+        peakTimes.clear(); // Clear previous peak times
+        
         double threshold = calculateThreshold(audioData);
         int lastPeakIndex = -MIN_PEAK_DISTANCE;
-
+    
         for (int i = 1; i < audioData.length - 1; i++) {
             if (audioData[i] > threshold && audioData[i] > audioData[i - 1] && audioData[i] > audioData[i + 1]) {
                 if (i - lastPeakIndex >= MIN_PEAK_DISTANCE) {
                     peakIndices.add(i);
+                    peakTimes.add((long)i * 1000 / SAMPLE_RATE); // Convert index to time in milliseconds
                     lastPeakIndex = i;
                 }
             }
         }
     }
+    
 
     private double calculateThreshold(double[] data) {
         double mean = calculateMean(data, 0, data.length - 1);
@@ -196,10 +192,10 @@ public class RealTimeHeartbeatGrapher extends JPanel {
         }
 
         long sum = 0;
-        for (int i = 1; i < peakTimes.size(); i++) {
-            sum += peakTimes.get(i) - peakTimes.get(i - 1);
+        for (int i = 1; i < peakIndices.size(); i++) {
+            sum += peakIndices.get(i) - peakIndices.get(i - 1);
         }
-        hrv = (double) sum / (peakTimes.size() - 1);
+        hrv = (double) (sum / (peakIndices.size() - 1)) / 1000;
     }
 
     private void startRealTimeGraphing() {
